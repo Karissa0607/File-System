@@ -1,0 +1,26 @@
+For our synchronization implementations, we used a singular pthread_mutex_t called lock for our synchronization primitives. This was to create simplicity within the multi-threaded programs as it would have been hard to keep track of multiple different pthread_mutex_t locks within the different commands.
+
+In ext2fsal_mkdir.c, we locked the critical sections that contained the following functions:
+get_directory_entry
+make_directory_entry
+
+get_directory_entry is locked because it loops through an inodes blocks trying to find a directory entry with a matching name. If the inode provided in this function is altered by another thread, for example a cp thread, then it is going to create unexpected results. This is because if a cp thread makes a file with the same name as the directory entry that is trying to be created, then the mkdir command will return that there is an entry that already exists which is not a directory. The proper functionality of this scenario would be that the directory would be created rather than an error returning. 
+
+make_directory_entry is locked because it assigns a block to the inode provided in order to create the new directory entry. This should be locked as it alters the block bitmap by setting the bit of that block number to 1. It also decreases the block group descriptor and super block free blocks count by 1.This would create a race condition if it was not locked as threads may decrement this value by more than it should, due to context switches. This function also assigns an inode number that will be linked to the inode provided if a link inode number is not provided. This is to link the directory entry to another inode in order to create a tree-like file system. For the same reasons as above, there would be a race condition that occurs due to a context switch between threads as the inode_bitmap, block group descriptor and super block free inodes count are being changed. 
+
+In ext2fsal_cp.c, we locked the following critical sections that contained the following functions:
+get_directory_entry
+make_directory_entry
+copy_data
+
+The same reasons above for get_directory_entry and make_directory_entry apply here.
+
+copy_data is locked because it is writing the data from the src file provided into the blocks of the provided inode. It is also updating the inodes i_blocks, i_size and i_block which could create a race condition if this section was not locked and create unexpected values. This function should also be locked due to the fact that if rm was attempting to remove this file that has not been fully copied yet then the rm will produce unexpected results. This could come in the form of rm not removing all of the blocks in the inode which would produce a block bitmap with these bits of these corresponding blocks being 1 when they should have been set to 0 as they were supposed to be removed. This is why this function needs to be locked. 
+
+In ext2fsal_rm.c, we locked the following critical sections that contained the following functions:
+get_file_directory
+remove_file
+
+get_file_directory is locked because it loops through the path finding the directory entry of the file that is needed. In order to do this looping technique, get_directory_entry is used which needs to be locked for the same reasoning as above. However, the whole function needs to be locked because it is keeping track of other directory entries that can not be altered during the execution of this function, such as any inode blocks being removed or copied, as it would possibly create segmentation faults. Specifically, this is the parent_dir_entry. 
+
+remove file is locked because it is removing an inode. This decreases the link count of the inode, updates the i_dtime variable, deletes the blocks of the inode which increases the block group descriptor and super block free blocks count and changes the bit of the block bitmap to 0 and the same thing is done for the deletion of the inode except it will be the free inodes count and inode bitmap being changed. This can cause race conditions as threads may increment these values more than they are supposed to if they are not locked. This is due to the fact that these operations are not atomic.

@@ -1,0 +1,1 @@
+Implementation of an API (in C) of file system commands that operates on an ext2-formatted virtual disk concurrently using synchronization primitives. These commands are a mimic of the Linux commands: mkdir, cp and rm. 
